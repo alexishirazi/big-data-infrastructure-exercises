@@ -14,7 +14,7 @@ from fastapi import APIRouter, status
 from fastapi.params import Query
 
 from bdi_api.settings import Settings
-import pandas as pd
+
 
 settings = Settings()
 
@@ -23,11 +23,10 @@ s1 = APIRouter(
         status.HTTP_404_NOT_FOUND: {"description": "Not found"},
         status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Something is wrong with the request"},
     },
-    prefix="/api/s1", #download postman to help 
+    prefix="/api/s1", 
     tags=["s1"],
 )
-#testing how to use the git push function :)
-
+#############################################################################################
 @s1.post("/aircraft/download")
 def download_data(
     file_limit: Annotated[
@@ -60,16 +59,8 @@ def download_data(
     """
     download_dir = os.path.join(settings.raw_dir, "day=20231101")
     base_url = settings.source_url + "/2023/11/01/"
-# TODO Implement download
-   # TODO Implement download
-    # Create the directory if it doesn't exist
-    os.makedirs(download_dir, exist_ok=True)
 
-     # Create the directory if it doesn't exist
-    os.makedirs(download_dir, exist_ok=True)
-
-    # Clean the download directory
-      # Create directory if it doesn't exist
+    # Create the directory 
     os.makedirs(download_dir, exist_ok=True)
     
     # Clean existing files
@@ -79,16 +70,16 @@ def download_data(
             os.remove(file_path)
     
     try:
-        # Get list of files from the URL
+        # Get list of all files from the URL
         response = requests.get(base_url)
-        response.raise_for_status()  # Added error handling for HTTP status
-        
+        response.raise_for_status()
+        # search for all the links that end with .json.gz and store them in a list with a limit 
         soup = BeautifulSoup(response.text, 'html.parser')
         files = [
             a['href'] for a in soup.find_all('a') 
             if a['href'].endswith('.json.gz')
-        ][:file_limit]  # Apply the file limit
-        
+        ][:file_limit]  
+        #use tqdm to show a visual loading bar in the terminal 
         downloaded_count = 0
         for file_name in tqdm(files, desc="Downloading files"):
             file_url = urljoin(base_url, file_name)
@@ -109,7 +100,8 @@ def download_data(
         return f"Error accessing URL: {str(e)}"
     except Exception as e:
         return f"Error during download: {str(e)}"
-    
+
+#############################################################################################
 @s1.post("/aircraft/prepare")
 def prepare_data() -> str:
     """Prepare the data in the way you think it's better for the analysis.
@@ -130,16 +122,15 @@ def prepare_data() -> str:
     Keep in mind that we are downloading a lot of small files, and some libraries might not work well with this!
     """
 
-    ### must clean the data in this section
-# TODO
+
     prepared_dir = os.path.join(settings.prepared_dir, "day=20231101")
     raw_dir = os.path.join(settings.raw_dir, "day=20231101")
 
-    # Create directory if it doesn't exist
+    # Create directory
     os.makedirs(prepared_dir, exist_ok=True)
 
     # Clean existing files
-    for file in os.listdir(prepared_dir):  # This line had incorrect indentation
+    for file in os.listdir(prepared_dir):  
         file_path = os.path.join(prepared_dir, file)
         if os.path.isfile(file_path):
             os.remove(file_path)
@@ -156,13 +147,12 @@ def prepare_data() -> str:
                         df['timestamp'] = data['now']  # Add timestamp directly to DataFrame
                         all_data.append(df)
         
-        # Combine all data outside the loop
         combined_df = pd.concat(all_data, ignore_index=True)
         
-        # Select required columns
+        # Define necessary columns
         combined_df = combined_df[['hex', 'r', 'type', 't', 'lat', 'lon', 'alt_baro', 'gs', 'emergency','timestamp']]
         
-        # Rename columns
+        # Rename columns based on data given to match 
         combined_df = combined_df.rename(columns={
             'hex': 'icao', 
             'r': 'registration', 
@@ -172,79 +162,76 @@ def prepare_data() -> str:
             'emergency': 'had_emergency'
         })
         # Drop rows with NaN values in 'icao', 'registration', and 'type'
+        # Necessary because question asks for available aircrafts - aircraft cannot be 'available' without a value
         combined_df = combined_df.dropna(subset=['icao', 'registration', 'type'])
-        # Process emergency flags
+
+        # Process emergency flags based on described emergencies and excludes 'none' value
         emergency = ['general', 'lifeguard', 'minfuel', 'nordo', 'unlawful', 'downed', 'reserved']
         combined_df['had_emergency'] = combined_df['had_emergency'].apply(lambda x: x in emergency)
         
-        # Save to CSV
+        # Convert the prepared data into a CSV file
         combined_df.to_csv(os.path.join(prepared_dir, 'prepared_data.csv'), index=False)
 
-        print(combined_df)
         return f"Data prepared and saved to {prepared_dir}"
 
     except Exception as e:
         return f"Error during data preparation: {str(e)}"
 
+
+#############################################################################################
 @s1.get("/aircraft/") # expecting num_results =100, page -1/ aircraft 
 def list_aircraft(num_results: int = 100, page: int = 0) -> list[dict]:
     """List all the available aircraft, its registration and type ordered by
     icao asc
     """
-    # TODO
+   
     prepared_dir = os.path.join(settings.prepared_dir, "day=20231101")
     file_path = os.path.join(prepared_dir, 'prepared_data.csv')
 
     if not os.path.exists(file_path):
         return []
 
+    # I'm dropping all duplicate values and sorting by icao to make sure we only see valid information once
+    # In "/aircraft/prepare" i have filtered out the rows with NaN, to only analyze available aircrafts
+
     df = pd.read_csv(file_path)
-    #i am dropping all duplicate values and sorting by icao to make sure we only see valid information once
     df = df[['icao', 'registration', 'type']].drop_duplicates().sort_values(by='icao')
 
     start = page * num_results
     end = start + num_results
 
     result = df.iloc[start:end].to_dict(orient='records')
-    print(result)
     return result
 
 
+#############################################################################################
 @s1.get("/aircraft/{icao}/positions")
 def get_aircraft_position(icao: str, num_results: int = 1000, page: int = 0) -> list[dict]:
     """Returns all the known positions of an aircraft ordered by time (asc)
     If an aircraft is not found, return an empty list.
     """
-    # TODO implement and return a list with dictionaries with those values.
     
-
     prepared_dir = os.path.join(settings.prepared_dir, "day=20231101")
     file_path = os.path.join(prepared_dir, 'prepared_data.csv')
 
     if not os.path.exists(file_path):
         return []
-
+    
+    #Filtering the data by icao and sorting by timestamp to get the correct positions of the aircraft at specific times
     df = pd.read_csv(file_path)
     df = df[df['icao'] == icao].sort_values(by='timestamp')
-
+    
     start = page * num_results
     end = start + num_results
 
     result = df.iloc[start:end][['timestamp', 'lat', 'lon']].to_dict(orient='records')
-    print(result)
     return result
 
-
-
+#############################################################################################
 @s1.get("/aircraft/{icao}/stats")
 def get_aircraft_statistics(icao: str) -> dict:
-    """Returns different statistics about the aircraft
-
-    * max_altitude_baro
-    * max_ground_speed
-    * had_emergency
-    """
-    # TODO Gather and return the correct statistics for the requested aircraft
+    """Returns different statistics about the aircraft: max_altitude_baro, max_ground_speed, had_emergency"""
+    
     prepared_dir = os.path.join(settings.prepared_dir, "day=20231101")
     file_path = os.path.join(prepared_dir, 'prepared_data.csv')
 
@@ -258,17 +245,9 @@ def get_aircraft_statistics(icao: str) -> dict:
         return {}
 
     # Convert numpy types to Python native types
+    # Converted numpy.bool_ to Python bool type for 'had_emergency' column 
     max_altitude_baro = float(df['altitude_baro'].max()) if not pd.isna(df['altitude_baro'].max()) else None
     max_ground_speed = float(df['ground_speed'].max()) if not pd.isna(df['ground_speed'].max()) else None
-    had_emergency = bool(df['had_emergency'].any())  # Convert numpy.bool_ to Python bool
+    had_emergency = bool(df['had_emergency'].any())  
 
-    print({
-        "max_altitude_baro": max_altitude_baro,
-        "max_ground_speed": max_ground_speed,
-        "had_emergency": had_emergency
-    })
-    return {
-        "max_altitude_baro": max_altitude_baro,
-        "max_ground_speed": max_ground_speed,
-        "had_emergency": had_emergency
-    }
+    return {"max_altitude_baro": max_altitude_baro, "max_ground_speed": max_ground_speed, "had_emergency": had_emergency}
