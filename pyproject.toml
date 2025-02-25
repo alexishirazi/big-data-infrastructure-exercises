@@ -29,6 +29,13 @@ opentelemetry-api = "1.21.0"
 opentelemetry-sdk = "1.21.0"
 opentelemetry-instrumentation-fastapi = "0.42b0"
 # Add your dependencies here
+pytest = "^7.4.2"
+beautifulsoup4 = "^4.13.3"
+tqdm = "^4.67.1"
+pandas = "^2.2.3"
+boto3 = "^1.36.17"
+aiohttp = "^3.11.12"
+aioboto3 = "^14.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.5.0"

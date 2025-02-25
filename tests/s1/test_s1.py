@@ -16,7 +16,14 @@ class TestS1Student:
         with client as client:
             response = client.post("/api/s1/aircraft/download?file_limit=1")
             assert True
+    def test_download_10(self, client: TestClient) -> None:
+        response = client.post("/api/s1/aircraft/download?file_limit=10")
+        print("Response:", response.json())  # Debugging
+        assert response.status_code == 200
 
+    def test_prepare(self, client: TestClient) -> None:
+        response = client.post("/api/s1/aircraft/prepare")
+        assert response.status_code == 200
 
 class TestItCanBeEvaluated:
     """
