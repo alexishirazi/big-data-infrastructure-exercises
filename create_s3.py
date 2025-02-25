@@ -1,5 +1,6 @@
 import boto3
 
+
 def create_bucket(bucket_name='bdi-aircraft', region='us-east-1'):
     try:
         s3_client = boto3.client('s3', region_name='us-east-1')
@@ -24,11 +25,7 @@ def main():
     # Create the bucket
     create_bucket('bdi-aircraft')
 
-    # List buckets
-    list_buckets()
-
 if __name__ == '__main__':
     main()
-    
-                
- 
+
+

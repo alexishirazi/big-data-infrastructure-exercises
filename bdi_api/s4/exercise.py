@@ -116,7 +116,7 @@ def process_s3_file(s3_bucket: str, s3_key: str, local_prepared_path: str) -> bo
         prepared_file_path = os.path.join(
             local_prepared_path, filename.replace(".json.gz", ".json")
         )
-        
+
         response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
         file_content = response["Body"].read()
 
@@ -164,7 +164,7 @@ def prepare_data() -> str:
     s3_bucket = settings.s3_bucket
     s3_prefix_path = "raw/day=20231101/"
     local_prepared_path = settings.prepared_dir
-    
+
     # Ensure the prepared directory exists
     clean_folder(local_prepared_path)
 

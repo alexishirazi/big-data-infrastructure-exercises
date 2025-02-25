@@ -14,7 +14,7 @@ class TestS1Student:
     def test_first(self, client: TestClient) -> None:
         # Implement tests if you want
         with client as client:
-            response = client.post("/api/s1/aircraft/download?file_limit=1")
+            client.post("/api/s1/aircraft/download?file_limit=1")
             assert True
     def test_download_10(self, client: TestClient) -> None:
         response = client.post("/api/s1/aircraft/download?file_limit=10")

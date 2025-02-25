@@ -6,7 +6,7 @@ import boto3
 import pytest
 from moto import mock_s3
 
-from bdi_api.s4.exercise import download_file, process_s3_file, clean_folder
+from bdi_api.s4.exercise import clean_folder, download_file, process_s3_file
 
 
 @pytest.fixture
@@ -39,33 +39,33 @@ def test_download_file():
         s3 = boto3.client("s3", region_name="us-east-1")
         bucket_name = "test-bucket"
         s3.create_bucket(Bucket=bucket_name)
-        
+
         # Mock requests.get
         with mock.patch("requests.get") as mock_get:
             mock_response = mock.Mock()
             mock_response.status_code = 200
             mock_response.content = b"test content"
             mock_get.return_value = mock_response
-            
+
             # Mock the s3_client in the function
             with mock.patch("bdi_api.s4.exercise.s3_client", s3):
                 # Test successful download
                 result = download_file(
-                    "http://example.com/", 
-                    "test.json.gz", 
-                    bucket_name, 
+                    "http://example.com/",
+                    "test.json.gz",
+                    bucket_name,
                     "raw/day=20231101/"
                 )
-                
+
                 # Verify success
                 assert result is True
-                
+
                 # Test failed download
                 mock_get.side_effect = Exception("Test error")
                 result = download_file(
-                    "http://example.com/", 
-                    "test.json.gz", 
-                    bucket_name, 
+                    "http://example.com/",
+                    "test.json.gz",
+                    bucket_name,
                     "raw/day=20231101/"
                 )
                 assert result is False
@@ -78,7 +78,7 @@ def test_process_s3_file(temp_dir):
         s3 = boto3.client("s3", region_name="us-east-1")
         bucket_name = "test-bucket"
         s3.create_bucket(Bucket=bucket_name)
-        
+
         # Create and upload test data
         test_data = {
             "now": 1635724800,
@@ -95,23 +95,23 @@ def test_process_s3_file(temp_dir):
                 }
             ]
         }
-        
+
         s3.put_object(
             Bucket=bucket_name,
             Key="raw/day=20231101/test.json.gz",
             Body=json.dumps(test_data).encode()
         )
-        
+
         # Mock the s3_client
         with mock.patch("bdi_api.s4.exercise.s3_client", s3):
             # Test successful processing
             result = process_s3_file(bucket_name, "raw/day=20231101/test.json.gz", temp_dir)
             assert result is True
-            
+
             # Verify file was created
             processed_file = os.path.join(temp_dir, "test.json")
             assert os.path.exists(processed_file)
-            
+
             # Test failed processing
             result = process_s3_file(bucket_name, "raw/day=20231101/nonexistent.json.gz", temp_dir)
             assert result is False
@@ -125,14 +125,14 @@ def test_clean_folder():
     test_file = os.path.join(test_dir, "test.txt")
     with open(test_file, "w") as f:
         f.write("test")
-    
+
     # Test the function
     clean_folder(test_dir)
-    
+
     # Verify folder exists but is empty
     assert os.path.exists(test_dir)
     assert len(os.listdir(test_dir)) == 0
-    
+
     # Clean up
     os.rmdir(test_dir)
 
@@ -140,7 +140,7 @@ def test_clean_folder():
 def test_download_data_endpoint():
     """Test the download_data API function directly."""
     from bdi_api.s4.exercise import download_data
-    
+
     # Mock settings
     with mock.patch("bdi_api.s4.exercise.settings.s3_bucket", "test-bucket"):
         with mock.patch("bdi_api.s4.exercise.settings.source_url", "http://example.com"):
@@ -150,7 +150,7 @@ def test_download_data_endpoint():
             mock_response.text = html_content
             mock_response.status_code = 200
             mock_response.raise_for_status = mock.Mock()
-            
+
             with mock.patch("bdi_api.s4.exercise.requests.get", return_value=mock_response):
                 with mock.patch("bdi_api.s4.exercise.download_file", return_value=True):
                     # Test function directly (not through API)
@@ -161,21 +161,21 @@ def test_download_data_endpoint():
 def test_prepare_data_endpoint():
     """Test the prepare_data API function directly."""
     from bdi_api.s4.exercise import prepare_data
-    
+
     # Create a temp directory for testing
     test_dir = "test_prepared_dir"
     os.makedirs(test_dir, exist_ok=True)
-    
+
     try:
         # Mock settings.s3_bucket and use a real directory
         with mock.patch("bdi_api.s4.exercise.settings.s3_bucket", "test-bucket"):
-            with mock.patch("bdi_api.s4.exercise.clean_folder") as mock_clean:
+            with mock.patch("bdi_api.s4.exercise.clean_folder"):
                 # Mock the S3 paginator
                 mock_paginator = mock.Mock()
                 mock_paginator.paginate.return_value = [{
                     "Contents": [{"Key": "raw/day=20231101/file1.json.gz"}]
                 }]
-                
+
                 with mock.patch("bdi_api.s4.exercise.s3_client.get_paginator", return_value=mock_paginator):
                     with mock.patch("bdi_api.s4.exercise.process_s3_file", return_value=True):
                         # Test function directly
