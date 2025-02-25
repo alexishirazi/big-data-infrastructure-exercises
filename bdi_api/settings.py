@@ -1,5 +1,5 @@
 from os.path import dirname, join
-
+import os
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
         description="For any other value set env variable 'BDI_LOCAL_DIR'",
     )
     s3_bucket: str = Field(
-        default="bdi-test",
+        default=os.getenv("BDI_S3_BUCKET", "Default"),
         description="Call the api like `BDI_S3_BUCKET=yourbucket poetry run uvicorn...`",
     )
 

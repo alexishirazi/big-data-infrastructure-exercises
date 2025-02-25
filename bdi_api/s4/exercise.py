@@ -47,7 +47,6 @@ def download_file(
     try:
         file_url = urljoin(base_url, file_name)
         response = requests.get(file_url, stream=True, timeout=10)
-
         if response.status_code == 200:
             s3_key = f"{s3_prefix_path}{file_name}"
             s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=response.content)
@@ -103,7 +102,6 @@ def download_data(
                 )
                 if future.result()
             )
-
         return f"Downloaded {successful_downloads} out of {len(files)} files to S3 bucket {s3_bucket}"
     except requests.RequestException as e:
         return f"Error accessing URL: {str(e)}"
