@@ -23,6 +23,7 @@ venv
 docs.zip
 archive.zip
 .ruff_cache
+.env
 
 # vim temporary files
 *~
