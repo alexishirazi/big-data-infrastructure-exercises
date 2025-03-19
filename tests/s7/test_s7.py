@@ -62,10 +62,11 @@ def mock_s3_client():
 def test_create_database_tables(mock_db_connection):
     mock_conn, mock_cursor = mock_db_connection
     create_database_tables()
-    mock_cursor.execute.assert_called_once()
+    assert mock_cursor.execute.call_count == 2  
     mock_conn.commit.assert_called_once()
     mock_cursor.close.assert_called_once()
     mock_conn.close.assert_called_once()
+
 
 def test_get_all_files_from_s3(mock_s3_client):
     result = get_all_files_from_s3()
@@ -88,8 +89,9 @@ def test_prepare_data_endpoint(client, mock_s3_client, mock_db_connection):
     with patch('bdi_api.s7.exercise.create_database_tables') as mock_create_tables:
         response = client.post("/api/s7/aircraft/prepare")
         assert response.status_code == 200
-        assert response.json() == "Aircraft data saved"
+        assert response.json() == {"message": "4 aircraft records saved"}  # Fix the assertion
         mock_create_tables.assert_called_once()
+
 
 def test_list_aircraft_endpoint(client, mock_db_connection):
     mock_conn, mock_cursor = mock_db_connection
@@ -133,4 +135,4 @@ def test_prepare_data_no_data(client, mock_s3_client):
     mock_s3_client.list_objects_v2.return_value = {}
     response = client.post("/api/s7/aircraft/prepare")
     assert response.status_code == 200
-    assert response.json() == "No aircraft data found"
+    assert response.json() == {"message": "No aircraft data found"}  

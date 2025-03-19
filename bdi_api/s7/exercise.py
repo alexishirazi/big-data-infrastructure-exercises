@@ -2,37 +2,29 @@ import io
 import gzip
 import json
 import boto3
+import time
+import os
 from fastapi import APIRouter
 from bdi_api.settings import DBCredentials, Settings
 import psycopg2
 from psycopg2.extras import execute_batch
 import logging
-
-# Basic setup
-logging.basicConfig(level=logging.INFO)
-settings = Settings()
-BUCKET_NAME = 'bdi-aircraft-alexi'
-s3_client = boto3.client("s3")
-s7 = APIRouter(prefix="/api/s7", tags=["s7"])
-
-
 from dotenv import load_dotenv
-import os
+from os.path import dirname, join
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Print environment variables to check if they are loaded
-print("DB Host:", os.getenv("BDI_DB_HOST"))
-print("DB Port:", os.getenv("BDI_DB_PORT"))
-print("DB Username:", os.getenv("BDI_DB_USERNAME"))
-print("DB Password:", os.getenv("BDI_DB_PASSWORD"))
-print("DB Database:", os.getenv("BDI_DB_DATABASE"))
-
+# Basic setup
+logging.basicConfig(level=logging.INFO)
+settings = Settings()
+BUCKET_NAME = 'bdi-aircraft-alexi'  # Your S3 bucket name
+s3_client = boto3.client("s3")
+s7 = APIRouter(prefix="/api/s7", tags=["s7"])
 
 # Database connection function
 def connect_to_database():
-    db_credentials = DBCredentials()  # Initialize db_credentials
+    db_credentials = DBCredentials()  # Initialize db_credentials from loaded .env
     try:
         conn = psycopg2.connect(
             dbname=db_credentials.database,
@@ -47,7 +39,7 @@ def connect_to_database():
         logging.error(f"Database connection error: {str(e)}")
         raise
 
-# Create the database tables
+# Create the database tables if they don't exist
 def create_database_tables():
     conn = connect_to_database()
     cur = conn.cursor()
@@ -95,23 +87,21 @@ def get_all_files_from_s3():
         logging.error(f"Error fetching files from S3: {str(e)}")
     return all_data
 
-# Retrieve a single file from S3
+# Retrieve a single file from S3 and process it
 def get_file_from_s3(file_key):
+    obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=file_key)
+    file_timestamp = int(obj["LastModified"].timestamp())  # S3 file mod time
+    content = obj["Body"].read()
     try:
-        obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=file_key)
-        content = obj["Body"].read()
-        try:
-            with gzip.GzipFile(fileobj=io.BytesIO(content)) as gz:
-                data = json.loads(gz.read().decode("utf-8"))
-        except:
-            data = json.loads(content.decode("utf-8"))
-        
-        return data.get("aircraft", data) if isinstance(data, dict) else data
-    except Exception as e:
-        logging.error(f"Error reading file from S3 ({file_key}): {str(e)}")
-        return []
-
-# Save data to the database
+        with gzip.GzipFile(fileobj=io.BytesIO(content)) as gz:
+            data = json.loads(gz.read().decode("utf-8"))
+    except:
+        data = json.loads(content.decode("utf-8"))
+    aircraft_data = data.get("aircraft", data) if isinstance(data, dict) else data
+    for record in aircraft_data:
+        record["file_timestamp"] = file_timestamp  # Add to each record
+    return aircraft_data
+    
 def save_to_database(data):
     conn = connect_to_database()
     cur = conn.cursor()
@@ -127,16 +117,21 @@ def save_to_database(data):
         if not icao:
             continue
             
+        # Check and log timestamp value
+        timestamp = record.get("timestamp") or (record.get("file_timestamp") - record.get("seen", 0))
+
+        # Prepare aircraft data
         aircraft_data.append((
             icao,
             record.get("registration", "") or record.get("r"),
             record.get("type", "")
         ))
         
+        # Prepare position data
         if "lat" in record and "lon" in record:
             position_data.append((
                 icao,
-                record.get("timestamp", 0),
+                timestamp,
                 record["lat"],
                 record["lon"],
                 float(record.get("altitude_baro", 0)),
@@ -170,6 +165,7 @@ def save_to_database(data):
     finally:
         cur.close()
         conn.close()
+
 
 # API endpoint to prepare the data and save it to the database
 @s7.post("/aircraft/prepare")
@@ -261,7 +257,7 @@ def get_aircraft_statistics(icao: str):
     
     return result
 
-# Start the application
+# Start the application (this may be inside your main FastAPI app)
 if __name__ == "__main__":
     logging.info("Preparing data...")
-    print(prepare_data())
+    print(prepare_data())  
