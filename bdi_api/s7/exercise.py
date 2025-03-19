@@ -66,29 +66,37 @@ def create_database_tables():
             );
         """)
         
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_aircraft_positions_icao_timestamp 
+            ON aircraft_positions (icao, timestamp);
+        """)
+
         conn.commit()
-        logging.info("Tables created successfully.")
+        logging.info("Tables and indexes created successfully.")
     except Exception as e:
-        logging.error(f"Error creating tables: {e}")
+        logging.error(f"Error creating tables or indexes: {e}")
         conn.rollback()  # Rollback if there's an error
     finally:
         cur.close()
         conn.close()
 
+
 # Retrieve all files from S3
-def get_all_files_from_s3():
+def get_all_files_from_s3(s3_client=None):
+    s3_client = s3_client or boto3.client("s3")
     all_data = []
     try:
         for obj in s3_client.list_objects_v2(Bucket=BUCKET_NAME).get("Contents", []):
             file_key = obj["Key"]
-            file_data = get_file_from_s3(file_key)
+            file_data = get_file_from_s3(file_key, s3_client=s3_client)
             all_data.extend(file_data)
     except Exception as e:
         logging.error(f"Error fetching files from S3: {str(e)}")
     return all_data
 
 # Retrieve a single file from S3 and process it
-def get_file_from_s3(file_key):
+def get_file_from_s3(file_key, s3_client=None):
+    s3_client = s3_client or boto3.client("s3")
     obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=file_key)
     file_timestamp = int(obj["LastModified"].timestamp())  # S3 file mod time
     content = obj["Body"].read()
@@ -260,4 +268,4 @@ def get_aircraft_statistics(icao: str):
 # Start the application (this may be inside your main FastAPI app)
 if __name__ == "__main__":
     logging.info("Preparing data...")
-    print(prepare_data())  
+    print(prepare_data())

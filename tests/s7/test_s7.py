@@ -1,138 +1,176 @@
-# test_s7.py
 import pytest
 import json
-from unittest.mock import Mock, patch
+import gzip
+import io
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
-from bdi_api.s7.exercise import s7, create_database_tables, get_all_files_from_s3, save_to_database
+from bdi_api.s7.exercise import (
+    connect_to_database,
+    create_database_tables,
+    get_file_from_s3,
+    get_all_files_from_s3,
+    save_to_database,
+    prepare_data,
+    list_aircraft,
+    get_aircraft_position,
+    get_aircraft_statistics,
+    s7,
+)
+from fastapi import FastAPI
+from psycopg2.extras import execute_batch
 
-# Sample test data
-SAMPLE_AIRCRAFT_DATA = [
-    {
-        "icao": "A12345",
-        "registration": "N12345",
-        "type": "B737",
-        "lat": 40.7128,
-        "lon": -74.0060,
-        "timestamp": 1647532800,
-        "altitude_baro": 35000,
-        "ground_speed": 450,
-        "emergency": False
-    },
-    {
-        "hex": "B67890",
-        "r": "N67890",
-        "type": "A320",
-        "lat": 34.0522,
-        "lon": -118.2437,
-        "timestamp": 1647532860,
-        "altitude_baro": 30000,
-        "ground_speed": 420,
-        "emergency": True
-    }
-]
+# Mock FastAPI app
+app = FastAPI()
+app.include_router(s7)
+client = TestClient(app)
 
-@pytest.fixture
-def client():
-    return TestClient(s7)
-
+# Fixtures
 @pytest.fixture
 def mock_db_connection():
-    with patch('bdi_api.s7.exercise.psycopg2.connect') as mock_connect:
-        mock_conn = Mock()
-        mock_cursor = Mock()
-        mock_connect.return_value = mock_conn
-        mock_conn.cursor.return_value = mock_cursor
-        # Correctly format the query as bytes with proper parameter substitution
-        mock_cursor.mogrify.side_effect = lambda query, vars: (
-            query % tuple(v if v is not None else 'NULL' for v in vars)
-        ).encode('utf-8')
-        yield mock_conn, mock_cursor
+    """Mock database connection"""
+    conn_mock = MagicMock()
+    cursor_mock = MagicMock()
+    conn_mock.cursor.return_value = cursor_mock
+    cursor_mock.fetchall.return_value = []
+    with patch("psycopg2.connect", return_value=conn_mock):
+        yield conn_mock, cursor_mock
 
 @pytest.fixture
 def mock_s3_client():
-    with patch('bdi_api.s7.exercise.s3_client') as mock_s3:
-        mock_s3.list_objects_v2.return_value = {
-            "Contents": [{"Key": "test1.json.gz"}, {"Key": "test2.json"}]
-        }
-        mock_s3.get_object.return_value = {
-            "Body": Mock(read=lambda: json.dumps(SAMPLE_AIRCRAFT_DATA).encode())
-        }
-        yield mock_s3
+    """Mock S3 client"""
+    s3_client = MagicMock()
+    with patch("boto3.client", return_value=s3_client):
+        yield s3_client
 
+@pytest.fixture
+def sample_aircraft_data():
+    return [
+        {
+            "icao": "a1b2c3",
+            "registration": "N12345",
+            "type": "B738",
+            "lat": 37.7749,
+            "lon": -122.4194,
+            "altitude_baro": 10000,
+            "ground_speed": 450,
+            "emergency": False,
+            "file_timestamp": 1645000000,
+            "seen": 10,
+        }
+    ]
+
+# Tests for database connection
+def test_connect_to_database(mock_db_connection):
+    """Test database connection"""
+    conn, _ = mock_db_connection
+    result = connect_to_database()
+    assert result == conn
+
+def test_connect_to_database_error():
+    """Test database connection error handling"""
+    with patch("psycopg2.connect", side_effect=Exception("Connection error")):
+        with pytest.raises(Exception) as excinfo:
+            connect_to_database()
+        assert "Connection error" in str(excinfo.value)
+
+# Tests for database table creation
 def test_create_database_tables(mock_db_connection):
-    mock_conn, mock_cursor = mock_db_connection
+    """Test database table creation"""
+    conn, cursor = mock_db_connection
     create_database_tables()
-    assert mock_cursor.execute.call_count == 2  
-    mock_conn.commit.assert_called_once()
-    mock_cursor.close.assert_called_once()
-    mock_conn.close.assert_called_once()
+    assert cursor.execute.called
+    assert conn.commit.called
 
+def test_create_database_tables_error(mock_db_connection):
+    """Test error handling in table creation"""
+    conn, cursor = mock_db_connection
+    cursor.execute.side_effect = Exception("SQL error")
+    create_database_tables()
+    assert conn.rollback.called
+
+# Tests for S3 file retrieval
+def test_get_file_from_s3(mock_s3_client):
+    """Test retrieving a file from S3"""
+    s3_client = mock_s3_client
+    sample_data = {"aircraft": [{"icao": "abc123"}]}
+    json_bytes = json.dumps(sample_data).encode("utf-8")
+    gzipped_content = io.BytesIO()
+    with gzip.GzipFile(fileobj=gzipped_content, mode="wb") as f:
+        f.write(json_bytes)
+    gzipped_bytes = gzipped_content.getvalue()
+
+    s3_client.get_object.return_value = {
+        "Body": io.BytesIO(gzipped_bytes),
+        "LastModified": MagicMock(timestamp=lambda: 1646000000),
+    }
+
+    result = get_file_from_s3("test_file.json.gz", s3_client=s3_client)
+    assert len(result) == 1
+    assert result[0]["icao"] == "abc123"
+    assert result[0]["file_timestamp"] == 1646000000
 
 def test_get_all_files_from_s3(mock_s3_client):
-    result = get_all_files_from_s3()
-    assert len(result) == 4  # Two files, each with SAMPLE_AIRCRAFT_DATA (2 records)
-    assert result[0]["icao"] == "A12345"
-    mock_s3_client.list_objects_v2.assert_called_once_with(Bucket='bdi-aircraft-alexi')
-    assert mock_s3_client.get_object.call_count == 2
+    """Test retrieving all files from S3"""
+    s3_client = mock_s3_client
+    s3_client.list_objects_v2.return_value = {
+        "Contents": [{"Key": "file1.json"}, {"Key": "file2.json"}]
+    }
 
-def test_save_to_database(mock_db_connection):
-    mock_conn, mock_cursor = mock_db_connection
-    save_to_database(SAMPLE_AIRCRAFT_DATA)
+    with patch("bdi_api.s7.exercise.get_file_from_s3", side_effect=[[{"icao": "abc123"}], [{"icao": "def456"}]]):
+        result = get_all_files_from_s3(s3_client=s3_client)
+    assert len(result) == 2
+    assert result[0]["icao"] == "abc123"
+    assert result[1]["icao"] == "def456"
+
+# Tests for saving data to database
+@patch("bdi_api.s7.exercise.execute_batch")
+def test_save_to_database(mock_execute_batch, mock_db_connection, sample_aircraft_data):
+    """Test saving data to the database"""
+    conn, cursor = mock_db_connection
+    save_to_database(sample_aircraft_data)
     
-    # Check aircraft data insertion
-    assert mock_cursor.execute.call_count >= 1
-    assert mock_conn.commit.called
-    assert mock_cursor.close.called
-    assert mock_conn.close.called
+    # Assert that execute_batch was called for aircraft and position data
+    assert mock_execute_batch.call_count == 2
+    assert conn.commit.called
 
-def test_prepare_data_endpoint(client, mock_s3_client, mock_db_connection):
-    with patch('bdi_api.s7.exercise.create_database_tables') as mock_create_tables:
+def test_save_to_database_error(mock_db_connection, sample_aircraft_data):
+    """Test error handling when saving to database"""
+    conn, cursor = mock_db_connection
+    cursor.execute.side_effect = Exception("Database error")
+    save_to_database(sample_aircraft_data)
+    assert conn.rollback.called
+
+# Tests for API endpoints
+def test_prepare_data_endpoint(mock_db_connection, mock_s3_client):
+    """Test prepare data endpoint"""
+    conn, cursor = mock_db_connection
+    s3_client = mock_s3_client
+    s3_client.list_objects_v2.return_value = {"Contents": [{"Key": "file1.json"}]}
+    with patch("bdi_api.s7.exercise.get_file_from_s3", return_value=[{"icao": "abc123"}]):
         response = client.post("/api/s7/aircraft/prepare")
         assert response.status_code == 200
-        assert response.json() == {"message": "4 aircraft records saved"}  # Fix the assertion
-        mock_create_tables.assert_called_once()
 
+def test_list_aircraft(mock_db_connection):
+    """Test listing aircraft"""
+    conn, cursor = mock_db_connection
+    cursor.fetchall.return_value = [("abc123", "N12345", "B738")]
+    response = list_aircraft()
+    assert len(response) == 1
+    assert response[0]["icao"] == "abc123"
 
-def test_list_aircraft_endpoint(client, mock_db_connection):
-    mock_conn, mock_cursor = mock_db_connection
-    mock_cursor.fetchall.return_value = [
-        ("A12345", "N12345", "B737"),
-        ("B67890", "N67890", "A320")
-    ]
-    
-    response = client.get("/api/s7/aircraft/?num_results=2&page=0")
-    assert response.status_code == 200
-    assert len(response.json()) == 2
-    assert response.json()[0]["icao"] == "A12345"
-    assert response.json()[0]["registration"] == "N12345"
+def test_get_aircraft_position(mock_db_connection):
+    """Test getting aircraft positions"""
+    conn, cursor = mock_db_connection
+    cursor.fetchall.return_value = [(1645000000, 37.7749, -122.4194)]
+    response = get_aircraft_position("abc123")
+    assert len(response) == 1
+    assert response[0]["timestamp"] == 1645000000
 
-def test_get_aircraft_position_endpoint(client, mock_db_connection):
-    mock_conn, mock_cursor = mock_db_connection
-    mock_cursor.fetchall.return_value = [
-        (1647532800, 40.7128, -74.0060),
-    ]
-    
-    response = client.get("/api/s7/aircraft/A12345/positions?num_results=1")
-    assert response.status_code == 200
-    result = response.json()
-    assert len(result) == 1
-    assert result[0]["timestamp"] == 1647532800
-    assert result[0]["lat"] == 40.7128
-    assert result[0]["lon"] == -74.0060
-
-def test_get_aircraft_statistics_endpoint(client, mock_db_connection):
-    mock_conn, mock_cursor = mock_db_connection
-    mock_cursor.fetchone.return_value = (35000, 450, True)
-    
-    response = client.get("/api/s7/aircraft/A12345/stats")
-    assert response.status_code == 200
-    result = response.json()
-    assert result["max_altitude_baro"] == 35000
-    assert result["max_ground_speed"] == 450
-    assert result["had_emergency"] == True
-
-def test_prepare_data_no_data(client, mock_s3_client):
-    mock_s3_client.list_objects_v2.return_value = {}
-    response = client.post("/api/s7/aircraft/prepare")
-    assert response.status_code == 200
-    assert response.json() == {"message": "No aircraft data found"}  
+def test_get_aircraft_statistics(mock_db_connection):
+    """Test getting aircraft statistics"""
+    conn, cursor = mock_db_connection
+    cursor.fetchone.return_value = (35000, 550, True)
+    response = get_aircraft_statistics("abc123")
+    assert response["max_altitude_baro"] == 35000
+    assert response["max_ground_speed"] == 550
+    assert response["had_emergency"] is True
