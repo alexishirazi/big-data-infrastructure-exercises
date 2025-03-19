@@ -1,48 +1,65 @@
+import os
 from os.path import dirname, join
-
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
+from dotenv import load_dotenv
+from pydantic import Field  # Import Field from pydantic
+from pydantic_settings import BaseSettings, SettingsConfigDict  # BaseSettings from pydantic_settings
 import bdi_api
 
+# Load environment variables from .env
+load_dotenv()
+
+# Get the project directory
 PROJECT_DIR = dirname(dirname(bdi_api.__file__))
 
 
 class DBCredentials(BaseSettings):
-    """Use env variables prefixed with BDI_DB_"""
-
     host: str
-    port: int = 5432
     username: str
     password: str
+    database: str
+    port: int = 5432
+
     model_config = SettingsConfigDict(env_prefix="bdi_db_")
 
 
+# Instantiating DBCredentials after loading the .env variables
+db_credentials = DBCredentials()
+
+# Output for debugging to confirm values are loaded
+print(db_credentials)
+
 class Settings(BaseSettings):
+    """Main settings for the application"""
+
     source_url: str = Field(
         default="https://samples.adsbexchange.com/readsb-hist",
-        description="Base URL to the website used to download the data.",
+        description="Base URL to the website used to download the data."
     )
     local_dir: str = Field(
         default=join(PROJECT_DIR, "data"),
-        description="For any other value set env variable 'BDI_LOCAL_DIR'",
+        description="For any other value, set the env variable 'BDI_LOCAL_DIR'"
     )
     s3_bucket: str = Field(
         default="bdi-test",
-        description="Call the api like `BDI_S3_BUCKET=yourbucket poetry run uvicorn...`",
+        description="Call the API like BDI_S3_BUCKET=yourbucket poetry run uvicorn..."
     )
-
-
     telemetry: bool = False
     telemetry_dsn: str = "http://project2_secret_token@uptrace:14317/2"
 
-    model_config = SettingsConfigDict(env_prefix="bdi_")
+    class Config:
+        env_prefix = "BDI_"
 
     @property
     def raw_dir(self) -> str:
-        """Store inside all the raw jsons"""
+        """Directory for storing raw JSON data"""
         return join(self.local_dir, "raw")
 
     @property
     def prepared_dir(self) -> str:
+        """Directory for storing prepared data"""
         return join(self.local_dir, "prepared")
+
+
+# Now you can instantiate the `Settings` class after loading the environment variables
+settings = Settings()
+print(settings)
