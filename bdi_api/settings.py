@@ -8,6 +8,7 @@ import bdi_api
 
 PROJECT_DIR = dirname(dirname(bdi_api.__file__))
 
+s3_bucket = "bdi-aircraft-alexi"
 
 class DBCredentials(BaseSettings):
     """Use env variables prefixed with BDI_DB_"""
@@ -16,7 +17,8 @@ class DBCredentials(BaseSettings):
     port: int = 5432
     username: str
     password: str
-    model_config = SettingsConfigDict(env_prefix="bdi_db_")
+    database: str
+    model_config = SettingsConfigDict(env_file='.env', env_prefix="bdi_db_", env_file_encoding="utf-8")
 
 
 class Settings(BaseSettings):
@@ -32,10 +34,14 @@ class Settings(BaseSettings):
         default=os.getenv("BDI_S3_BUCKET", "Default"),
         description="Call the api like `BDI_S3_BUCKET=yourbucket poetry run uvicorn...`",
     )
-
-
     telemetry: bool = False
     telemetry_dsn: str = "http://project2_secret_token@uptrace:14317/2"
+
+    # 🔥 Here's the new field for fuel consumption path
+    fuel_consumption_path: str = Field(
+        default=join(PROJECT_DIR, "data/fuel_consumption.json"),
+        description="Path to the JSON file that holds fuel consumption data by aircraft type.",
+    )
 
     model_config = SettingsConfigDict(env_prefix="bdi_")
 

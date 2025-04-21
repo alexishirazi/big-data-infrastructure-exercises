@@ -1,0 +1,5 @@
+{
+    "project": "airflowdags",
+    "dags_folder": "dags",
+    "env": "dev"
+  }

@@ -46,14 +46,21 @@ def download_file(
     """Download a file from URL and store it in S3."""
     try:
         file_url = urljoin(base_url, file_name)
+        print(f"Attempting to download file from {file_url}")
         response = requests.get(file_url, stream=True, timeout=10)
         if response.status_code == 200:
             s3_key = f"{s3_prefix_path}{file_name}"
+            print(f"Uploading {file_name} to S3 bucket {s3_bucket} at {s3_key}")
             s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=response.content)
+            print(f"File {file_name} uploaded successfully")
             return True
+        else:
+            print(f"Failed to download {file_name}. HTTP Status: {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"Error downloading or uploading {file_name}: {str(e)}")
         return False
-    except Exception:
-        return False
+
 
 
 @s4.post("/aircraft/download")
